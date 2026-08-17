@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=系统配置 (msconfig for Linux)
+Name[en]=System Configuration (msconfig for Linux)
+Comment=Windows msconfig 风格的系统配置工具：GRUB 引导 / systemd 服务 / 自启动项
+Comment[en]=msconfig-style system configuration: GRUB boot, systemd services, autostart
+Exec=msconfig
+Icon=utilities-system-monitor
+Categories=System;Settings;
+Terminal=false
+StartupNotify=true
+Keywords=msconfig;grub;boot;services;autostart;启动;引导;服务;

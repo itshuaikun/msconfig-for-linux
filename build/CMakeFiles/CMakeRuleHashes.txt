@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+caf759499b6bc9e00baa637f279c256e CMakeFiles/msconfig_autogen
+f20895f0b9454de31153dcca3ea2beb4 msconfig_autogen/timestamp

@@ -1,0 +1,41 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/msconfig.dir/link.d"
+  "CMakeFiles/msconfig_autogen.dir/AutogenUsed.txt"
+  "CMakeFiles/msconfig_autogen.dir/ParseCache.txt"
+  "msconfig_autogen"
+  "CMakeFiles/msconfig.dir/msconfig_autogen/mocs_compilation.cpp.o"
+  "CMakeFiles/msconfig.dir/msconfig_autogen/mocs_compilation.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/autostart.cpp.o"
+  "CMakeFiles/msconfig.dir/src/autostart.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/boottab.cpp.o"
+  "CMakeFiles/msconfig.dir/src/boottab.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/generaltab.cpp.o"
+  "CMakeFiles/msconfig.dir/src/generaltab.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/grub.cpp.o"
+  "CMakeFiles/msconfig.dir/src/grub.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/lang.cpp.o"
+  "CMakeFiles/msconfig.dir/src/lang.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/main.cpp.o"
+  "CMakeFiles/msconfig.dir/src/main.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/mainwindow.cpp.o"
+  "CMakeFiles/msconfig.dir/src/mainwindow.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/services.cpp.o"
+  "CMakeFiles/msconfig.dir/src/services.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/servicestab.cpp.o"
+  "CMakeFiles/msconfig.dir/src/servicestab.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/startuptab.cpp.o"
+  "CMakeFiles/msconfig.dir/src/startuptab.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/toolstab.cpp.o"
+  "CMakeFiles/msconfig.dir/src/toolstab.cpp.o.d"
+  "CMakeFiles/msconfig.dir/src/util.cpp.o"
+  "CMakeFiles/msconfig.dir/src/util.cpp.o.d"
+  "msconfig"
+  "msconfig.pdb"
+  "msconfig_autogen/mocs_compilation.cpp"
+  "msconfig_autogen/timestamp"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/msconfig.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

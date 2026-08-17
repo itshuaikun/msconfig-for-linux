@@ -1,0 +1,5 @@
+/home/terminal/Downloads/msconfig for linux/build/CMakeFiles/msconfig.dir
+/home/terminal/Downloads/msconfig for linux/build/CMakeFiles/edit_cache.dir
+/home/terminal/Downloads/msconfig for linux/build/CMakeFiles/rebuild_cache.dir
+/home/terminal/Downloads/msconfig for linux/build/CMakeFiles/msconfig_autogen_timestamp_deps.dir
+/home/terminal/Downloads/msconfig for linux/build/CMakeFiles/msconfig_autogen.dir
