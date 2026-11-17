@@ -3,10 +3,10 @@
 set -e
 cd "$(dirname "$0")"
 
-cmake -S . -B build
-cmake --build build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+cmake -S . -B out
+cmake --build out -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 echo
-echo "构建完成: $(pwd)/build/msconfig"
-echo "直接运行:      ./build/msconfig"
-echo "后端自检:      ./build/msconfig --check"
+echo "构建完成: $(pwd)/out/msconfig"
+echo "直接运行:      ./out/msconfig"
+echo "后端自检:      ./out/msconfig --check"
