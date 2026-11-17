@@ -13,6 +13,7 @@
 #include <QVBoxLayout>
 
 #include "boottab.h"
+#include "bootloader.h"
 #include "generaltab.h"
 #include "grub.h"
 #include "lang.h"
@@ -63,11 +64,10 @@ MainWindow::MainWindow(QWidget* parent)
     connect(cancelBtn, &QPushButton::clicked, this, &MainWindow::close);
     connect(helpBtn, &QPushButton::clicked, this, &MainWindow::onHelp);
 
-    const QString cfg = Grub::cfgPath();
     statusBar()->showMessage(L("STATUS_FMT")
                                  .arg(Util::distroName(), Util::sessionInfo(),
                                       Util::initSystem(),
-                                      cfg.isEmpty() ? "-" : QFileInfo(cfg).fileName()));
+                                      Bootloader::detect().name));
 }
 
 void MainWindow::showOutput(QWidget* parent, const QString& title, const QString& text)
@@ -88,7 +88,7 @@ void MainWindow::showOutput(QWidget* parent, const QString& title, const QString
     dlg.exec();
 }
 
-void MainWindow::onApply()
+bool MainWindow::onApply()
 {
     QStringList errs;
     errs << m_general->apply();
@@ -101,12 +101,13 @@ void MainWindow::onApply()
         QMessageBox::warning(this, L("MSG_ERROR"), errs.join('\n'));
     else
         statusBar()->showMessage(L("MSG_DONE"), 4000);
+    return errs.isEmpty();
 }
 
 void MainWindow::onOk()
 {
-    onApply();
-    close();
+    if (onApply())
+        close();
 }
 
 void MainWindow::onHelp()

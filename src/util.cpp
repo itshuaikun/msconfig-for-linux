@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <unistd.h>
@@ -47,6 +48,8 @@ static RunResult runSync(const QString& program, const QStringList& args, int ti
     r.output = QString::fromUtf8(p.readAllStandardOutput());
     r.output += QString::fromUtf8(p.readAllStandardError());
     r.ok = (p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0);
+    if (!r.ok)
+        r.error = r.output.isEmpty() ? QStringLiteral("%1 failed (exit %2)").arg(program).arg(r.exitCode) : r.output;
     return r;
 }
 
@@ -59,18 +62,9 @@ RunResult runRoot(const QString& shellCmd, int timeoutMs)
     if (havePkexec()) {
         return runSync("pkexec", {"sh", "-c", shellCmd}, timeoutMs);
     }
-    const QString term = findTerminal();
-    if (!term.isEmpty()) {
-        // 回退：在终端里交互式 sudo（无 pkexec 的极简环境）
-        const QString script = "sudo sh -c " + shellQuote(shellCmd)
-            + "; printf '\\n'; printf '%s' " + shellQuote("按回车键关闭... / Press Enter to close...")
-            + "; read _";
-        if (launchTerminalScript(script)) {
-            r.asyncLaunched = true;
-            return r;
-        }
-    }
-    r.error = "no privilege elevation method available";
+    // A detached terminal cannot report completion or cancellation reliably.
+    // Callers must not persist a successful state before the operation finishes.
+    r.error = "Synchronous authorization unavailable: install polkit (pkexec).";
     return r;
 }
 
@@ -190,7 +184,8 @@ QString sessionInfo()
 
 QString appConfigDir()
 {
-    return QDir::home().filePath(".config/msconfig-linux");
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation))
+        .filePath("msconfig-linux");
 }
 
 bool loadJson(QJsonObject* obj, QString* err)
@@ -219,12 +214,16 @@ bool saveJson(const QJsonObject& obj, QString* err)
         if (err) *err = "cannot create " + appConfigDir();
         return false;
     }
-    QFile f(QDir(appConfigDir()).filePath("state.json"));
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile f(QDir(appConfigDir()).filePath("state.json"));
+    if (!f.open(QIODevice::WriteOnly)) {
         if (err) *err = f.errorString();
         return false;
     }
-    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    const QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    if (f.write(data) != data.size() || !f.commit()) {
+        if (err) *err = f.errorString();
+        return false;
+    }
     return true;
 }
 

@@ -98,7 +98,7 @@ void ServicesTab::populate()
         } else {
             // static/masked 等不可直接切换的条目：置灰并说明
             item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable & ~Qt::ItemIsEnabled);
-            item->setToolTip(2, s.state == "masked" ? L("ST_MASKED_TIP") : L("ST_STATIC_TIP"));
+            item->setToolTip(2, s.state == "masked" ? L("ST_MASKED_TIP") : L("ST_READONLY_TIP"));
         }
     }
 }
@@ -119,9 +119,18 @@ QStringList ServicesTab::applyUnits(const QStringList& units, bool enable)
     if (units.isEmpty())
         return errs;
     QStringList quoted;
-    for (const QString& u : units)
+    for (const QString& u : units) {
+        if (!enable && Services::isProtected(u)) {
+            errs << L("S_PROTECTED_UNIT").arg(u);
+            continue;
+        }
         quoted << Util::shellQuote(u);
-    const QString cmd = "systemctl " + QString(enable ? "enable" : "disable") + " "
+    }
+    if (!errs.isEmpty())
+        QMessageBox::warning(this, L("MSG_INFO"), errs.join('\n'));
+    if (quoted.isEmpty())
+        return errs;
+    const QString cmd = "systemctl " + QString(enable ? "enable" : "disable") + " -- "
         + quoted.join(' ');
     Util::RunResult r;
     {
@@ -133,7 +142,7 @@ QStringList ServicesTab::applyUnits(const QStringList& units, bool enable)
         return errs;
     }
     if (!r.ok) {
-        MainWindow::showOutput(this, L("MSG_PARTIAL"), r.output);
+        MainWindow::showOutput(this, L("MSG_PARTIAL"), r.error);
         errs << QString("systemctl %1 failed (%2)").arg(enable ? "enable" : "disable").arg(r.exitCode);
     }
     return errs;
@@ -173,6 +182,8 @@ void ServicesTab::onEnableAll()
 {
     QStringList units;
     for (const ServiceInfo& s : m_rows) {
+        if (m_hideSystem->isChecked() && !s.userInstalled)
+            continue;
         if (s.toggleable && s.state == "disabled")
             units << s.unit;
     }
@@ -185,6 +196,8 @@ void ServicesTab::onDisableAll()
     QStringList units;
     int skipped = 0;
     for (const ServiceInfo& s : m_rows) {
+        if (m_hideSystem->isChecked() && !s.userInstalled)
+            continue;
         if (!s.toggleable || !(s.state == "enabled" || s.state == "enabled-runtime"))
             continue;
         if (Services::isProtected(s.unit)) {

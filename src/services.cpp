@@ -45,8 +45,7 @@ QVector<ServiceInfo> list(QString* err)
         ServiceInfo s;
         s.unit = cols.at(0);
         s.state = cols.at(1);
-        s.toggleable = (s.state == "enabled" || s.state == "enabled-runtime"
-                        || s.state == "disabled");
+        s.toggleable = (s.state == "enabled" || s.state == "disabled");
 
         for (const QString& d : dirs) {
             const QString path = d + '/' + s.unit;

@@ -26,6 +26,12 @@ static const Ent kTable[] = {
     {"BTN_OK", "确定", "OK"},
     {"BTN_CANCEL", "取消", "Cancel"},
     {"BTN_APPLY", "应用", "Apply"},
+    {"BTN_ENABLE", "启用", "Enable"},
+    {"BTN_DISABLE", "禁用", "Disable"},
+    {"BTN_ENABLE_ALL", "全部启用", "Enable all"},
+    {"BTN_DISABLE_ALL", "全部禁用", "Disable all"},
+    {"BTN_REFRESH", "刷新", "Refresh"},
+    {"ST_NOT_APPLICABLE", "不适用于当前桌面", "Not applicable to this desktop"},
     {"BTN_HELP", "帮助", "Help"},
 
     // ---- 常规 ----
@@ -43,6 +49,14 @@ static const Ent kTable[] = {
      "Note: changes here write the systemd default target and autostart items; use the Services/Startup tabs for per-item control."},
 
     // ---- 引导 ----
+    {"B_LIMINE_INFO", "当前引导器：%1\n本次启动项：%2\n\n本轮适配提供 Limine 信息查看，暂不支持在此修改默认启动项、超时和内核参数。\nCachyOS 的引导条目由 limine-entry-tool、内核更新与快照工具共同管理。请在“工具”页查看引导菜单和快照。\n\n本次内核参数：\n%3",
+      "Bootloader: %1\nCurrent entry: %2\n\nLimine support is informational in this version; default entry, timeout and kernel arguments cannot be edited here.\nCachyOS boot entries are managed by limine-entry-tool, kernel updates and snapshot tools. Use Tools to inspect the boot menu and snapshots.\n\nCurrent kernel arguments:\n%3"},
+    {"TOOL_BOOT", "当前引导器信息", "Current bootloader information"},
+    {"TOOL_BOOT_D", "查看当前引导器与 EFI 信息", "Inspect the current bootloader and EFI information"},
+    {"TOOL_LIMINE", "Limine 引导菜单", "Limine boot menu"},
+    {"TOOL_LIMINE_D", "使用 CachyOS limine-entry-tool 查看菜单（需要授权）", "Inspect the menu with CachyOS limine-entry-tool (authentication required)"},
+    {"TOOL_SNAPSHOTS", "Limine 快照列表", "Limine snapshots"},
+    {"TOOL_SNAPSHOTS_D", "查看 Limine / Snapper 快照（需要授权）", "Inspect Limine / Snapper snapshots (authentication required)"},
     {"B_ENTRIES", "引导项目：", "Boot entries:"},
     {"B_CURRENT_FMT", "当前默认：%1", "Current default: %1"},
     {"B_NONE", "（未识别）", "(not detected)"},
@@ -78,8 +92,8 @@ static const Ent kTable[] = {
     {"B_DEFAULT_SET", "已将“%1”设为默认引导项。", "Set \"%1\" as the default boot entry."},
 
     // ---- 服务 ----
-    {"S_HIDE", "隐藏系统自带服务（仅显示第三方/手动安装的服务）",
-     "Hide system-bundled services (show only third-party / manually installed)"},
+    {"S_HIDE", "仅显示本地定义的服务（/etc、/run、/usr/local）",
+     "Show locally defined services only (/etc, /run, /usr/local)"},
     {"S_NONE_FOUND", "未找到服务。systemd 是否在运行？", "No services found. Is systemd running?"},
     {"COL_SERVICE", "服务", "Service"},
     {"COL_DESC", "描述", "Description"},
@@ -96,6 +110,8 @@ static const Ent kTable[] = {
     {"S_TOGGLED_FMT", "已处理 %1 项服务。", "%1 service operations applied."},
     {"CONF_DIS_ALL_SVCS", "即将禁用列表中全部可切换的服务（受保护的关键服务会自动跳过），可能影响系统功能。确定继续？",
      "This will disable every toggleable service in the list (critical services are protected). Continue?"},
+    {"S_PROTECTED_UNIT", "已跳过受保护服务：%1", "Protected service skipped: %1"},
+    {"ST_READONLY_TIP", "此服务状态不支持持久启用/禁用操作（如 static、运行时启用或别名）。", "This unit state does not support persistent toggling here (e.g. static, runtime-enabled or alias)."},
     {"S_PROTECTED_SKIP_FMT", "已跳过受保护服务 %1 项。", "%1 protected services were skipped."},
 
     // ---- 启动 ----
@@ -149,26 +165,26 @@ static const Ent kTable[] = {
     {"HELP_TITLE", "关于 / 帮助", "About / Help"},
     {"HELP_TEXT",
      "msconfig for Linux —— Windows「系统配置(msconfig)」的 Linux 复刻（C++/Qt）。\n\n"
-     "• 常规：正常/诊断/有选择的启动（systemd 默认目标 + 批量开关）\n"
-     "• 引导：管理 GRUB 默认启动项、超时、内核参数（写入 /etc/default/grub 并重新生成 grub.cfg）\n"
+     "• 常规：只读显示历史记录；批量修改和自动恢复暂未开放\n"
+     "• 引导：Limine 仅显示实际引导信息；GRUB 保留配置编辑\n"
      "• 服务：启用/禁用 systemd 服务（下次启动生效，与 msconfig 一致）\n"
      "• 启动：XDG 标准自启动项（~/.config/autostart 与 /etc/xdg/autostart）\n"
      "• 工具：常用系统工具快捷入口\n\n"
-     "提权方式自动适配：root 直接执行 → pkexec → 终端内 sudo。\n"
-     "适用于任意发行版（Arch/Debian/Fedora/openSUSE...）与任意 DE/WM（X11/Wayland）。\n\n"
+     "提权方式：root 直接执行或 pkexec；缺少同步授权方式时不执行修改。\n"
+     "此 fork 主要适配 CachyOS / KDE / Wayland / Limine，具体能力请查看各页面说明。\n\n"
      "安全与恢复：\n"
      "  修改 /etc/default/grub 前自动备份为 /etc/default/grub.msconfig-bak\n"
      "  重新生成前备份 grub.cfg 为 grub.cfg.msconfig-bak\n"
      "  恢复命令：sudo cp /etc/default/grub.msconfig-bak /etc/default/grub && sudo grub-mkconfig -o /boot/grub/grub.cfg\n"
      "  恢复服务：sudo systemctl enable 服务名",
      "msconfig for Linux - a Linux recreation of Windows msconfig (C++/Qt).\n\n"
-     "• General: normal/diagnostic/selective startup (systemd default target + bulk toggles)\n"
-     "• Boot: manage GRUB default entry, timeout and kernel parameters (writes /etc/default/grub and regenerates grub.cfg)\n"
+     "• General: saved records only; bulk changes and automatic restoration are disabled\n"
+     "• Boot: Limine information only; GRUB configuration editing retained\n"
      "• Services: enable/disable systemd services (takes effect next boot, like msconfig)\n"
      "• Startup: XDG-standard autostart items (~/.config/autostart and /etc/xdg/autostart)\n"
      "• Tools: quick access to common system tools\n\n"
-     "Privilege elevation adapts automatically: run as root -> pkexec -> sudo in a terminal.\n"
-     "Works on any distro (Arch/Debian/Fedora/openSUSE...) and any DE/WM (X11/Wayland).\n\n"
+     "Privilege elevation: root or pkexec; changes require synchronous authorization.\n"
+     "This fork targets CachyOS / KDE / Wayland / Limine; consult each page for supported operations.\n\n"
      "Safety & recovery:\n"
      "  /etc/default/grub is backed up to /etc/default/grub.msconfig-bak before changes\n"
      "  grub.cfg is backed up to grub.cfg.msconfig-bak before regenerating\n"

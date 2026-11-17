@@ -3,6 +3,7 @@
 #include <QTextStream>
 
 #include "autostart.h"
+#include "bootloader.h"
 #include "grub.h"
 #include "lang.h"
 #include "mainwindow.h"
@@ -23,6 +24,11 @@ static int selfCheck()
     out << "pkexec   : " << (Util::havePkexec() ? "found" : "not found") << "\n";
     out << "terminal : "
         << (Util::findTerminal().isEmpty() ? "(none)" : Util::findTerminal()) << "\n";
+
+    const auto loader = Bootloader::detect();
+    out << "bootloader: " << loader.name << "\n";
+    out << "boot entry: " << loader.selectedEntry << "\n";
+    out << "boot editing: " << (loader.isLimine ? "unavailable (Limine information only)" : "GRUB only") << "\n";
 
     const QString cfg = Grub::cfgPath();
     out << "grub.cfg : " << (cfg.isEmpty() ? "(not found)" : cfg) << "\n";
@@ -49,7 +55,7 @@ static int selfCheck()
 
     const auto autos = Autostart::list();
     out << "autostart: " << autos.size() << " ("
-        << Autostart::systemDir() << " + " << Autostart::userDir() << ")\n";
+        << Autostart::systemDirs().join(" + ") << " + " << Autostart::userDir() << ")\n";
     for (const AutoInfo& a : autos)
         out << "  " << (a.enabled ? "[on ] " : "[off] ") << a.fileName
             << "  " << a.title << "\n";
@@ -72,8 +78,10 @@ int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i) {
         const QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == "--check")
+        if (arg == "--check") {
+            QCoreApplication app(argc, argv);
             return selfCheck();
+        }
         if (arg == "--version") {
             QTextStream(stdout) << "msconfig for Linux 1.0.0 (Qt " << qVersion() << ")\n";
             return 0;

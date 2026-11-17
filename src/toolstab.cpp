@@ -5,6 +5,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QStandardPaths>
 #include <QVBoxLayout>
 
 #include "lang.h"
@@ -39,6 +40,9 @@ static const ToolDef kTools[] = {
      "elif command -v apk >/dev/null 2>&1; then apk info | less; "
      "elif command -v xbps-query >/dev/null 2>&1; then xbps-query -l | less; "
      "else echo unknown package manager; fi"},
+    {"TOOL_BOOT", "TOOL_BOOT_D", "bootctl status --no-pager"},
+    {"TOOL_LIMINE", "TOOL_LIMINE_D", "sudo limine-entry-tool --tree"},
+    {"TOOL_SNAPSHOTS", "TOOL_SNAPSHOTS_D", "sudo limine-snapper-list"},
     {"TOOL_GRUBENV", "TOOL_GRUBENV_D",
      "grub-editenv list 2>/dev/null || sudo grub-editenv list"},
     {"TOOL_USER", "TOOL_USER_D",
@@ -52,8 +56,18 @@ ToolsTab::ToolsTab(QWidget* parent)
     auto* rootLayout = new QVBoxLayout(this);
 
     m_list = new QListWidget(this);
-    for (const ToolDef& t : kTools)
-        m_list->addItem(L(t.nameKey));
+    for (const ToolDef& t : kTools) {
+        auto* item = new QListWidgetItem(L(t.nameKey), m_list);
+        const QString key = QString::fromLatin1(t.nameKey);
+        QString required;
+        if (key == "TOOL_GRUBENV") required = "grub-editenv";
+        if (key == "TOOL_BOOT") required = "bootctl";
+        if (key == "TOOL_LIMINE") required = "limine-entry-tool";
+        if (key == "TOOL_SNAPSHOTS") required = "limine-snapper-list";
+        if (!required.isEmpty() && QStandardPaths::findExecutable(required).isEmpty())
+            item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+        item->setToolTip(L(t.descKey));
+    }
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
     rootLayout->addWidget(m_list, 1);
 
@@ -86,9 +100,11 @@ void ToolsTab::onSelectionChanged()
 void ToolsTab::onLaunch()
 {
     const int row = m_list->currentRow();
-    if (row < 0)
+    if (row < 0 || !(m_list->item(row)->flags() & Qt::ItemIsEnabled))
         return;
-    if (!Util::launchTerminalScript(QString::fromLatin1(kTools[row].cmd)))
+    const QString script = QString::fromLatin1(kTools[row].cmd)
+        + "; printf '\nPress Enter to close...'; read -r _";
+    if (!Util::launchTerminalScript(script))
         QMessageBox::warning(this, L("MSG_ERROR"), L("T_NO_TERM"));
 }
 

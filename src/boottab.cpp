@@ -1,4 +1,5 @@
 #include "boottab.h"
+#include "bootloader.h"
 
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -17,6 +18,7 @@
 #include <QRegularExpression>
 #include <QSpinBox>
 #include <QTextStream>
+#include <QTemporaryFile>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -53,6 +55,7 @@ BootTab::BootTab(QWidget* parent)
 
     m_noGrubLabel = new QLabel(L("B_NOGRUB"), this);
     m_noGrubLabel->setWordWrap(true);
+    m_noGrubLabel->setTextFormat(Qt::PlainText);
     m_noGrubLabel->setStyleSheet("color:#b00; padding:8px;");
     m_noGrubLabel->hide();
     rootLayout->addWidget(m_noGrubLabel);
@@ -114,7 +117,11 @@ BootTab::BootTab(QWidget* parent)
 void BootTab::reload()
 {
     const QString cfg = Grub::cfgPath();
-    m_hasGrub = !cfg.isEmpty() && QFile::exists(Grub::defaultsPath());
+    const auto loader = Bootloader::detect();
+    m_hasGrub = loader.name.startsWith("GRUB", Qt::CaseInsensitive) && !cfg.isEmpty() && QFile::exists(Grub::defaultsPath());
+    m_noGrubLabel->setText(loader.isLimine ? L("B_LIMINE_INFO").arg(loader.name, loader.selectedEntry,
+                                                       Bootloader::kernelCommandLine())
+                                         : L("B_NOGRUB"));
     const bool enable = m_hasGrub;
     m_tree->setEnabled(enable);
     m_setDefaultBtn->setEnabled(enable);
@@ -269,9 +276,9 @@ void BootTab::onRegen()
     const QString cfg = Grub::cfgPath();
     if (cfg.isEmpty())
         return;
-    QString cmd = "test -e " + Util::shellQuote(cfg + ".msconfig-bak")
+    QString cmd = "(test -e " + Util::shellQuote(cfg + ".msconfig-bak")
         + " || cp -a " + Util::shellQuote(cfg) + " " + Util::shellQuote(cfg + ".msconfig-bak")
-        + "; " + Grub::mkconfigCommand();
+        + ") && " + Grub::mkconfigCommand();
     Util::RunResult r;
     {
         BusyCursor b;
@@ -326,32 +333,29 @@ QStringList BootTab::apply()
         QString::fromUtf8(oldFile.readAll()), kv);
     oldFile.close();
 
-    const QString tmp = QString("/tmp/msconfig-grub-%1").arg(QCoreApplication::applicationPid());
-    {
-        QFile tf(tmp);
-        if (!tf.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-            errs << tf.errorString();
-            return errs;
-        }
-        tf.write(newText.toUtf8());
+    QTemporaryFile temporary;
+    const QByteArray bytes = newText.toUtf8();
+    if (!temporary.open() || temporary.write(bytes) != bytes.size() || !temporary.flush()) {
+        errs << temporary.errorString();
+        return errs;
     }
+    const QString tmp = temporary.fileName();
 
     const QString def = Grub::defaultsPath();
     const QString cfg = Grub::cfgPath();
-    QString cmd = "test -e " + Util::shellQuote(def + ".msconfig-bak")
+    QString cmd = "(test -e " + Util::shellQuote(def + ".msconfig-bak")
         + " || cp -a " + Util::shellQuote(def) + " " + Util::shellQuote(def + ".msconfig-bak")
-        + "; test -e " + Util::shellQuote(cfg + ".msconfig-bak")
+        + ") && (test -e " + Util::shellQuote(cfg + ".msconfig-bak")
         + " || cp -a " + Util::shellQuote(cfg) + " " + Util::shellQuote(cfg + ".msconfig-bak")
-        + "; cp " + Util::shellQuote(tmp) + " " + Util::shellQuote(def)
+        + ") && cp " + Util::shellQuote(tmp) + " " + Util::shellQuote(def)
         + " && chmod 644 " + Util::shellQuote(def)
-        + "; " + Grub::mkconfigCommand();
+        + " && " + Grub::mkconfigCommand();
 
     Util::RunResult r;
     {
         BusyCursor b;
         r = Util::runRoot(cmd);
     }
-    QFile::remove(tmp);
 
     if (r.asyncLaunched) {
         QMessageBox::information(this, L("MSG_INFO"), L("MSG_ASYNC"));

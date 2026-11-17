@@ -4,6 +4,10 @@
 #include <QFile>
 #include <QLocale>
 #include <QTextStream>
+#include <QSaveFile>
+#include <QStandardPaths>
+#include <QFileInfo>
+#include <QMap>
 
 namespace Autostart {
 
@@ -24,13 +28,18 @@ public:
 
     bool save(const QString& path) const
     {
-        QFile f(path);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        QSaveFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
             return false;
         QTextStream out(&f);
         for (const QString& l : m_lines)
             out << l << '\n';
-        return true;
+        out.flush();
+        if (out.status() != QTextStream::Ok || f.error() != QFileDevice::NoError) {
+            f.cancelWriting();
+            return false;
+        }
+        return f.commit();
     }
 
     // group 下 key= 的值（取该组内最后一次出现）
@@ -39,9 +48,7 @@ public:
         int gi = findGroup(group);
         if (gi < 0)
             return def;
-        for (int i = m_lines.size() - 1; i > gi; --i) {
-            if (isGroupLine(m_lines[i]))
-                break;
+        for (int i = groupEnd(gi) - 1; i > gi; --i) {
             const QString v = matchKey(m_lines[i], key);
             if (!v.isNull())
                 return v;
@@ -56,9 +63,7 @@ public:
             m_lines.append("[" + group + "]");
             gi = m_lines.size() - 1;
         }
-        for (int i = m_lines.size() - 1; i > gi; --i) {
-            if (isGroupLine(m_lines[i]))
-                break;
+        for (int i = groupEnd(gi) - 1; i > gi; --i) {
             if (!matchKey(m_lines[i], key).isNull()) {
                 m_lines[i] = key + "=" + val;
                 return;
@@ -72,17 +77,22 @@ public:
         int gi = findGroup(group);
         if (gi < 0)
             return;
-        for (int i = m_lines.size() - 1; i > gi; --i) {
-            if (isGroupLine(m_lines[i]))
-                break;
-            if (!matchKey(m_lines[i], key).isNull()) {
+        for (int i = groupEnd(gi) - 1; i > gi; --i) {
+            if (!matchKey(m_lines[i], key).isNull())
                 m_lines.removeAt(i);
-                return;
-            }
         }
     }
 
 private:
+    int groupEnd(int start) const
+    {
+        for (int i = start + 1; i < m_lines.size(); ++i) {
+            if (isGroupLine(m_lines[i]))
+                return i;
+        }
+        return m_lines.size();
+    }
+
     static bool isGroupLine(const QString& l)
     {
         return l.trimmed().startsWith('[');
@@ -136,15 +146,34 @@ static QString localizedValue(DesktopFile& df, const QString& key, const QString
 
 QString userDir()
 {
-    return QDir::home().filePath(".config/autostart");
+    const QString configHome = qEnvironmentVariable("XDG_CONFIG_HOME");
+    return QDir(QDir::isAbsolutePath(configHome) ? configHome
+                                                : QDir::home().filePath(".config"))
+        .filePath("autostart");
+}
+
+QStringList systemDirs()
+{
+    const QString configDirs = qEnvironmentVariable("XDG_CONFIG_DIRS");
+    QStringList result;
+    const QStringList roots = (configDirs.isEmpty() ? QString("/etc/xdg") : configDirs)
+                                 .split(':', Qt::SkipEmptyParts);
+    for (const QString& root : roots) {
+        if (!QDir::isAbsolutePath(root))
+            continue;
+        const QString dir = QDir::cleanPath(QDir(root).filePath("autostart"));
+        if (!result.contains(dir))
+            result.append(dir);
+    }
+    return result;
 }
 
 QString systemDir()
 {
-    return "/etc/xdg/autostart";
+    return systemDirs().value(0);
 }
 
-static QVector<AutoInfo> scanDir(const QString& dir)
+static QVector<AutoInfo> scanDir(const QString& dir, bool user)
 {
     QVector<AutoInfo> out;
     QDir d(dir);
@@ -152,20 +181,61 @@ static QVector<AutoInfo> scanDir(const QString& dir)
     for (const QString& name : files) {
         AutoInfo a;
         a.fileName = name;
-        a.userPath = (dir == userDir()) ? d.filePath(name) : QString();
-        a.systemPath = (dir == systemDir()) ? d.filePath(name) : QString();
+        a.userPath = user ? d.filePath(name) : QString();
+        a.systemPath = user ? QString() : d.filePath(name);
         out.append(a);
     }
     return out;
+}
+
+// Desktop filters constrain applicability independently of the user's enabled flag.
+static bool applicable(const DesktopFile& df)
+{
+    const QString type = df.value("Desktop Entry", "Type");
+    if (type != "Application" || df.value("Desktop Entry", "Exec").isEmpty())
+        return false;
+    QStringList desktops = qEnvironmentVariable("XDG_CURRENT_DESKTOP")
+                               .split(':', Qt::SkipEmptyParts);
+    // Older KDE sessions may only export this compatibility variable.
+    if (desktops.isEmpty() && qEnvironmentVariable("KDE_FULL_SESSION") == "true")
+        desktops.append("KDE");
+    const QString only = df.value("Desktop Entry", "OnlyShowIn");
+    const QString excluded = df.value("Desktop Entry", "NotShowIn");
+    const QStringList allowed = only.split(';', Qt::SkipEmptyParts);
+    const QStringList denied = excluded.split(';', Qt::SkipEmptyParts);
+    bool matches = only.isNull();
+    for (const QString& desktop : desktops) {
+        if (denied.contains(desktop))
+            return false;
+        if (allowed.contains(desktop))
+            matches = true;
+    }
+    if (!matches)
+        return false;
+    const QString tryExec = df.value("Desktop Entry", "TryExec");
+    if (!tryExec.isEmpty()) {
+        if (QDir::isAbsolutePath(tryExec)) {
+            const QFileInfo executable(tryExec);
+            if (!executable.isFile() || !executable.isExecutable())
+                return false;
+        } else if (tryExec.contains('/') || QStandardPaths::findExecutable(tryExec).isEmpty()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 QVector<AutoInfo> list()
 {
     // 名称 -> 条目（用户目录条目遮挡同名的系统条目）
     QMap<QString, AutoInfo> merged;
-    for (const AutoInfo& a : scanDir(systemDir()))
-        merged[a.fileName] = a;
-    for (const AutoInfo& a : scanDir(userDir())) {
+    for (const QString& dir : systemDirs()) {
+        for (const AutoInfo& a : scanDir(dir, false)) {
+            if (!merged.contains(a.fileName))
+                merged.insert(a.fileName, a);
+        }
+    }
+    for (const AutoInfo& a : scanDir(userDir(), true)) {
         if (merged.contains(a.fileName)) {
             merged[a.fileName].userPath = a.userPath;
         } else {
@@ -182,7 +252,8 @@ QVector<AutoInfo> list()
         const bool hasSys = !a.systemPath.isEmpty() && sysDf.load(a.systemPath);
 
         // 生效文件 = 用户条目（若存在），否则系统条目
-        DesktopFile* eff = hasUser ? &userDf : (hasSys ? &sysDf : nullptr);
+        DesktopFile* eff = !a.userPath.isEmpty() ? (hasUser ? &userDf : nullptr)
+                                                : (hasSys ? &sysDf : nullptr);
         if (!eff)
             continue;
 
@@ -195,7 +266,7 @@ QVector<AutoInfo> list()
             if (a.title == a.fileName)
                 a.title.clear();
         }
-        if (hasSys) {
+        if (hasSys && (!hasUser || a.managedShadow)) {
             const QString sysTitle = localizedValue(sysDf, "Name", QString());
             if (a.title.isEmpty() && !sysTitle.isEmpty())
                 a.title = sysTitle;
@@ -209,7 +280,8 @@ QVector<AutoInfo> list()
 
         const QString hidden = eff->value("Desktop Entry", "Hidden");
         const QString gnomeEnabled = eff->value("Desktop Entry", "X-GNOME-Autostart-enabled");
-        a.enabled = !(hidden.compare("true", Qt::CaseInsensitive) == 0)
+        a.applicable = applicable(a.managedShadow && hasSys ? sysDf : *eff);
+        a.enabled = a.applicable && !(hidden.compare("true", Qt::CaseInsensitive) == 0)
                     && gnomeEnabled.compare("false", Qt::CaseInsensitive) != 0;
         out.append(a);
     }
@@ -218,6 +290,13 @@ QVector<AutoInfo> list()
 
 bool setEnabled(const AutoInfo& info, bool enable, QString* err)
 {
+    if (err)
+        err->clear();
+    if (info.fileName.isEmpty() || info.fileName == "." || info.fileName == ".."
+        || info.fileName.contains('/') || info.fileName.contains('\\')) {
+        if (err) *err = "invalid autostart filename";
+        return false;
+    }
     const QString udir = userDir();
     if (!QDir().mkpath(udir)) {
         if (err) *err = "cannot create " + udir;
@@ -226,20 +305,36 @@ bool setEnabled(const AutoInfo& info, bool enable, QString* err)
     const QString ufile = QDir(udir).filePath(info.fileName);
 
     if (enable) {
-        if (info.managedShadow) {
-            // 删除遮挡文件，露出系统条目
+        DesktopFile df;
+        const bool userExists = QFileInfo::exists(ufile);
+        if (userExists && !df.load(ufile)) {
+            if (err) *err = "cannot read " + ufile;
+            return false;
+        }
+        const bool shadow = userExists
+            && df.value("Desktop Entry", "X-msconfig-Managed") == "true";
+        if (!userExists || shadow) {
+            if (info.systemPath.isEmpty() || !df.load(info.systemPath)) {
+                if (err) *err = "cannot read " + info.systemPath;
+                return false;
+            }
+        }
+        if (!applicable(df)) {
+            if (err) *err = "autostart entry is not applicable to this desktop or TryExec is unavailable";
+            return false;
+        }
+        // Removing a managed shadow only enables a system entry that is itself enabled.
+        // Otherwise copy the full system entry and clear its disabled flags locally.
+        if (shadow && df.value("Desktop Entry", "Hidden").compare("true", Qt::CaseInsensitive) != 0
+            && df.value("Desktop Entry", "X-GNOME-Autostart-enabled").compare("false", Qt::CaseInsensitive) != 0) {
             if (!QFile::remove(ufile)) {
                 if (err) *err = "cannot remove " + ufile;
                 return false;
             }
             return true;
         }
-        DesktopFile df;
-        if (!df.load(ufile)) {
-            if (err) *err = "cannot read " + ufile;
-            return false;
-        }
         df.removeKey("Desktop Entry", "Hidden");
+        df.removeKey("Desktop Entry", "X-msconfig-Managed");
         df.setValue("Desktop Entry", "X-GNOME-Autostart-enabled", "true");
         if (!df.save(ufile)) {
             if (err) *err = "cannot write " + ufile;

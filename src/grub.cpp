@@ -75,9 +75,19 @@ static QString stripQuotes(const QString& v)
 {
     const QString t = v.trimmed();
     if (t.size() >= 2) {
-        if ((t.startsWith('"') && t.endsWith('"'))
-            || (t.startsWith('\'') && t.endsWith('\'')))
+        if (t.startsWith('\'') && t.endsWith('\''))
             return t.mid(1, t.size() - 2);
+        if (t.startsWith('"') && t.endsWith('"')) {
+            QString out;
+            const QString inner = t.mid(1, t.size() - 2);
+            for (int i = 0; i < inner.size(); ++i) {
+                if (inner[i] == '\\' && i + 1 < inner.size()
+                    && QString("\\\"$`").contains(inner[i + 1]))
+                    ++i;
+                out += inner[i];
+            }
+            return out;
+        }
     }
     return t;
 }
@@ -108,7 +118,7 @@ QString updatedDefaultsText(const QString& oldText, const QHash<QString, QString
         if (!m.hasMatch())
             continue;
         const QString key = m.captured(1);
-        if (!rawPairs.contains(key) || done.value(key))
+        if (!rawPairs.contains(key))
             continue;
         lines[i] = key + "=" + rawPairs.value(key);
         done[key] = true;
@@ -132,6 +142,7 @@ QString quoteValue(const QString& v)
 {
     QString t = v;
     t.replace('\\', "\\\\").replace('"', "\\\"");
+    t.replace('$', "\\$").replace('`', "\\`");
     return '"' + t + '"';
 }
 

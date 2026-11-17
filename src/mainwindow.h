@@ -18,7 +18,7 @@ public:
     static void showOutput(QWidget* parent, const QString& title, const QString& text);
 
 private slots:
-    void onApply();
+    bool onApply();
     void onOk();
     void onHelp();
 

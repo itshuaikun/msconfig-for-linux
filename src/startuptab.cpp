@@ -62,6 +62,10 @@ void StartupTab::reload()
         item->setText(2, a.userPath.isEmpty() ? L("LOC_SYSTEM") : L("LOC_USER"));
         item->setText(3, a.enabled ? L("ST_ENABLED") : L("ST_DISABLED"));
         item->setTextAlignment(3, Qt::AlignCenter);
+        if (!a.applicable) {
+            item->setFlags(item->flags() & ~Qt::ItemIsEnabled & ~Qt::ItemIsUserCheckable);
+            item->setText(3, L("ST_NOT_APPLICABLE"));
+        }
         QString tip = a.comment;
         if (!a.userPath.isEmpty())
             tip += "\n" + a.userPath;
@@ -139,8 +143,8 @@ QStringList StartupTab::apply()
     }
     const int n = toEnable.size() + toDisable.size();
     if (n > 0) {
-        applyUnits(toEnable, true);
-        applyUnits(toDisable, false);
+        if (!applyUnits(toEnable, true)) errs << L("MSG_PARTIAL");
+        if (!applyUnits(toDisable, false)) errs << L("MSG_PARTIAL");
         reload();
     }
     return errs;

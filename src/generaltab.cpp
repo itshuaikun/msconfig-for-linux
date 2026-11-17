@@ -6,76 +6,19 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
-#include <QMessageBox>
+#include <QLocale>
 #include <QRadioButton>
-#include <QSet>
-#include <QStandardPaths>
 #include <QVBoxLayout>
 #include <vector>
 
-#include "autostart.h"
 #include "lang.h"
-#include "services.h"
 #include "util.h"
 
 namespace {
-
-void disableAllAutostart(QJsonArray* saved)
+QString translated(const char* zh, const char* en)
 {
-    for (const AutoInfo& a : Autostart::list()) {
-        if (a.enabled) {
-            Autostart::setEnabled(a, false);
-            saved->append(a.fileName);
-        }
-    }
+    return QString::fromUtf8(QLocale::system().language() == QLocale::Chinese ? zh : en);
 }
-
-void restoreAutostart(const QJsonArray& saved)
-{
-    QSet<QString> names;
-    for (const QJsonValue& v : saved)
-        names.insert(v.toString());
-    for (const AutoInfo& a : Autostart::list()) {
-        if (names.contains(a.fileName) && !a.enabled)
-            Autostart::setEnabled(a, true);
-    }
-}
-
-// 批量禁用可切换且不受保护的服务，返回实际禁用的清单
-QStringList bulkDisableServices(int* protectedSkipped)
-{
-    QStringList units;
-    int skipped = 0;
-    for (const ServiceInfo& s : Services::list()) {
-        if (!s.toggleable || !(s.state == "enabled" || s.state == "enabled-runtime"))
-            continue;
-        if (Services::isProtected(s.unit)) {
-            ++skipped;
-            continue;
-        }
-        units << s.unit;
-    }
-    if (protectedSkipped)
-        *protectedSkipped = skipped;
-    if (units.isEmpty())
-        return {};
-    QStringList quoted;
-    for (const QString& u : units)
-        quoted << Util::shellQuote(u);
-    Util::runRoot("systemctl disable " + quoted.join(' '));
-    return units;
-}
-
-void bulkEnableServices(const QStringList& units)
-{
-    if (units.isEmpty())
-        return;
-    QStringList quoted;
-    for (const QString& u : units)
-        quoted << Util::shellQuote(u);
-    Util::runRoot("systemctl enable " + quoted.join(' '));
-}
-
 } // namespace
 
 GeneralTab::GeneralTab(QWidget* parent)
@@ -89,7 +32,9 @@ GeneralTab::GeneralTab(QWidget* parent)
     m_normal = new QRadioButton(L("G_NORMAL"), modeBox);
     m_diag = new QRadioButton(L("G_DIAG"), modeBox);
     m_sel = new QRadioButton(L("G_SELECTIVE"), modeBox);
-    auto* descLabel = new QLabel(L("G_SEL_DESC"), modeBox);
+    auto* descLabel = new QLabel(translated(
+        "此页仅显示本工具以前保存的选择，不代表当前系统的实际启动状态。",
+        "This page shows this tool's previously saved selection, not the actual current system startup state."), modeBox);
     descLabel->setWordWrap(true);
     grid->addWidget(m_normal, 0, 0);
     grid->addWidget(m_diag, 1, 0);
@@ -97,22 +42,18 @@ GeneralTab::GeneralTab(QWidget* parent)
     grid->addWidget(descLabel, 0, 1, 3, 1);
     grid->setColumnStretch(1, 1);
     rootLayout->addWidget(modeBox);
-    m_normal->setChecked(true);
 
     auto* selBox = new QGroupBox(this);
     auto* selLay = new QVBoxLayout(selBox);
     m_loadSvcs = new QCheckBox(L("G_LOAD_SVCS"), selBox);
     m_loadStartup = new QCheckBox(L("G_LOAD_STARTUP"), selBox);
-    m_loadSvcs->setChecked(true);
-    m_loadStartup->setChecked(true);
     selLay->addWidget(m_loadSvcs);
     selLay->addWidget(m_loadStartup);
     rootLayout->addWidget(selBox);
-    connect(m_sel, &QRadioButton::toggled, selBox, &QGroupBox::setEnabled);
 
-    m_note = new QLabel(L("G_NOTE"), this);
+    m_note = new QLabel(this);
     m_note->setWordWrap(true);
-    m_note->setStyleSheet("color:gray;");
+    m_note->setTextFormat(Qt::PlainText);
     rootLayout->addWidget(m_note);
     rootLayout->addStretch(1);
 
@@ -121,19 +62,46 @@ GeneralTab::GeneralTab(QWidget* parent)
 
 void GeneralTab::reload()
 {
+    setControlsEnabled(false);
+    // Clear any previously displayed selection before attempting to read the log.
+    for (QRadioButton* button : {m_normal, m_diag, m_sel}) {
+        button->setAutoExclusive(false);
+        button->setChecked(false);
+        button->setAutoExclusive(true);
+    }
+    m_loadSvcs->setChecked(false);
+    m_loadStartup->setChecked(false);
+
+    const QString explanation = translated(
+        "批量启动模式暂为只读：旧版本未完整记录原始启动目标和服务状态，无法保证可靠恢复。应用或确定不会修改此页设置。",
+        "Bulk startup modes are temporarily read-only: older versions did not record the original boot target and service states completely, so reliable restoration cannot be guaranteed. Apply and OK do not change these settings.");
     QJsonObject st;
     QString err;
-    if (Util::loadJson(&st, &err) && !err.isEmpty())
-        m_note->setText(err);
-    m_mode = st.value("mode").toString("normal");
-    m_loadedSvc = st.value("load_system_services").toBool(true);
-    m_loadedStartup = st.value("load_startup_items").toBool(true);
+    if (!Util::loadJson(&st, &err)) {
+        m_note->setText(explanation + "\n\n" + translated(
+            "无法读取恢复记录；文件将保留原样。错误：",
+            "Cannot read the recovery record; the file is left unchanged. Error: ") + err);
+        return;
+    }
+    if (st.isEmpty()) {
+        m_note->setText(explanation + "\n\n" + translated(
+            "没有可显示的历史启动记录。",
+            "There is no saved startup record to display."));
+        return;
+    }
 
-    m_normal->setChecked(m_mode == "normal");
-    m_diag->setChecked(m_mode == "diagnostic");
-    m_sel->setChecked(m_mode == "selective");
-    m_loadSvcs->setChecked(m_loadedSvc);
-    m_loadStartup->setChecked(m_loadedStartup);
+    const QString mode = st.value("mode").toString();
+    m_normal->setChecked(mode == "normal");
+    m_diag->setChecked(mode == "diagnostic");
+    m_sel->setChecked(mode == "selective");
+    m_loadSvcs->setChecked(st.value("load_system_services").toBool(false));
+    m_loadStartup->setChecked(st.value("load_startup_items").toBool(false));
+    const int services = st.value("disabled_services").toArray().size();
+    const int startup = st.value("disabled_autostart").toArray().size();
+    m_note->setText(explanation + "\n\n" + translated(
+        "历史记录：模式 %1，服务 %2 项，自启动 %3 项。记录保留原样；如需恢复，请先核实当前状态与原设置，再逐项处理。",
+        "Saved record: mode %1, %2 services, %3 autostart entries. The record is preserved. To restore, first verify current and original settings, then handle each item individually.")
+        .arg(mode).arg(services).arg(startup));
 }
 
 void GeneralTab::setControlsEnabled(bool on)
@@ -144,97 +112,7 @@ void GeneralTab::setControlsEnabled(bool on)
 
 QStringList GeneralTab::apply()
 {
-    QStringList errs;
-    const QString target = m_diag->isChecked()   ? "diagnostic"
-                           : m_sel->isChecked()  ? "selective"
-                                                 : "normal";
-    const bool wantSvc = m_loadSvcs->isChecked();
-    const bool wantStartup = m_loadStartup->isChecked();
-
-    if (target == m_mode
-        && (target != "selective"
-            || (wantSvc == m_loadedSvc && wantStartup == m_loadedStartup)))
-        return errs; // 无变化
-
-    QJsonObject st;
-    Util::loadJson(&st);
-    QJsonArray savedSvcs = st.value("disabled_services").toArray();
-    QJsonArray savedStartup = st.value("disabled_autostart").toArray();
-
-    const bool toGraphical = (m_mode == "diagnostic" && target != "diagnostic");
-
-    if (target == "diagnostic") {
-        if (QMessageBox::question(this, L("MSG_CONFIRM"),
-                                  L("CONF_DIAG").arg(L("G_DIAG_DESC")))
-            != QMessageBox::Yes)
-            return errs;
-        {
-            BusyCursor b;
-            Util::runRoot("systemctl set-default multi-user.target");
-            disableAllAutostart(&savedStartup);
-        }
-    } else {
-        if (toGraphical) {
-            BusyCursor b;
-            Util::runRoot("systemctl set-default graphical.target");
-        }
-        const bool effStartup = (target == "normal") ? true : wantStartup;
-        const bool effSvc = (target == "normal") ? true : wantSvc;
-
-        if (!effStartup) {
-            if (savedStartup.isEmpty()) {
-                BusyCursor b;
-                disableAllAutostart(&savedStartup);
-            }
-        } else if (!savedStartup.isEmpty()) {
-            BusyCursor b;
-            restoreAutostart(savedStartup);
-            savedStartup = {};
-        }
-
-        if (!effSvc) {
-            if (savedSvcs.isEmpty()) {
-                int skipped = 0;
-                // 先数一遍用于确认框
-                int willDisable = 0;
-                for (const ServiceInfo& s : Services::list()) {
-                    if (s.toggleable && (s.state == "enabled" || s.state == "enabled-runtime")
-                        && !Services::isProtected(s.unit))
-                        ++willDisable;
-                    else if (s.toggleable
-                             && (s.state == "enabled" || s.state == "enabled-runtime"))
-                        ++skipped;
-                }
-                if (QMessageBox::question(this, L("MSG_CONFIRM"),
-                                          L("CONF_DIS_SVCS").arg(willDisable).arg(skipped))
-                    != QMessageBox::Yes)
-                    return errs;
-                BusyCursor b;
-                const QStringList units = bulkDisableServices(nullptr);
-                for (const QString& u : units)
-                    savedSvcs.append(u);
-            }
-        } else if (!savedSvcs.isEmpty()) {
-            BusyCursor b;
-            QStringList units;
-            for (const QJsonValue& v : savedSvcs)
-                units << v.toString();
-            bulkEnableServices(units);
-            savedSvcs = {};
-        }
-    }
-
-    st.insert("mode", target);
-    st.insert("load_system_services", target == "normal" ? true : wantSvc);
-    st.insert("load_startup_items", target == "normal" ? true : wantStartup);
-    st.insert("disabled_services", savedSvcs);
-    st.insert("disabled_autostart", savedStartup);
-    QString jerr;
-    if (!Util::saveJson(st, &jerr))
-        errs << jerr;
-
-    m_mode = target;
-    m_loadedSvc = st.value("load_system_services").toBool(true);
-    m_loadedStartup = st.value("load_startup_items").toBool(true);
-    return errs;
+    // Fail closed until a transactional recovery format can preserve exact prior
+    // state and track each confirmed mutation. Never rewrite an old/damaged log.
+    return {};
 }
